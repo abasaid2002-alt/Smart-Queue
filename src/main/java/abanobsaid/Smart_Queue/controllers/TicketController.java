@@ -91,6 +91,16 @@ public class TicketController {
         return toResponse(ticket);
     }
 
+    @PatchMapping("/tickets/{ticketId}/smart-delay")
+    public TicketResponseDTO smartDelay(
+            @PathVariable long ticketId,
+            @RequestParam(defaultValue = "3") int positions,
+            @AuthenticationPrincipal User currentUser
+    ) {
+        Ticket ticket = ticketService.smartDelay(ticketId, positions, currentUser);
+        return toResponse(ticket);
+    }
+
     private TicketResponseDTO toResponse(Ticket ticket) {
         return new TicketResponseDTO(
                 ticket.getId(),

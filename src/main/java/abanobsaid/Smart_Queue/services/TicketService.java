@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
@@ -158,6 +159,72 @@ public class TicketService {
         ticket.setCompletedAt(LocalDateTime.now());
 
         return ticketRepository.save(ticket);
+    }
+
+    public Ticket smartDelay(long ticketId, int positions, User currentUser) {
+        Ticket ticket = findById(ticketId);
+
+        if (currentUser.getRole() != Role.CLIENT) {
+            throw new RuntimeException("Solo un cliente può usare Smart Delay");
+        }
+
+        if (ticket.getUser().getId() != currentUser.getId()) {
+            throw new RuntimeException("Non puoi usare Smart Delay su questo ticket");
+        }
+
+        if (ticket.getStatus() != TicketStatus.WAITING) {
+            throw new RuntimeException("Smart Delay può essere usato solo su ticket in attesa");
+        }
+
+        if (ticket.isSmartDelayUsed()) {
+            throw new RuntimeException("Smart Delay è già stato usato per questo ticket");
+        }
+
+        if (positions < 1 || positions > 3) {
+            throw new RuntimeException("Puoi rimandare il turno da 1 a massimo 3 posizioni");
+        }
+
+        List<Ticket> waitingTickets = new ArrayList<>(
+                ticketRepository.findByQueue(ticket.getQueue())
+                        .stream()
+                        .filter(t -> t.getStatus() == TicketStatus.WAITING)
+                        .sorted(Comparator.comparingInt(Ticket::getSortOrder))
+                        .toList()
+        );
+
+        int currentIndex = -1;
+
+        for (int i = 0; i < waitingTickets.size(); i++) {
+            if (waitingTickets.get(i).getId() == ticket.getId()) {
+                currentIndex = i;
+                break;
+            }
+        }
+
+        if (currentIndex == -1) {
+            throw new RuntimeException("Ticket non trovato nella coda di attesa");
+        }
+
+        if (currentIndex == waitingTickets.size() - 1) {
+            throw new RuntimeException("Non puoi usare Smart Delay perché sei già l'ultimo in coda");
+        }
+
+        Ticket ticketToMove = waitingTickets.remove(currentIndex);
+
+        int newIndex = Math.min(currentIndex + positions, waitingTickets.size());
+
+        waitingTickets.add(newIndex, ticketToMove);
+
+        ticketToMove.setSmartDelayUsed(true);
+        ticketToMove.setSmartDelayAt(LocalDateTime.now());
+
+        for (int i = 0; i < waitingTickets.size(); i++) {
+            waitingTickets.get(i).setSortOrder(i + 1);
+        }
+
+        ticketRepository.saveAll(waitingTickets);
+
+        return findById(ticketId);
     }
 
     public Ticket findById(long ticketId) {
