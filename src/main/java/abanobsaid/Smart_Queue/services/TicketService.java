@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 
 @Service
@@ -43,7 +44,10 @@ public class TicketService {
     }
 
     public List<Ticket> getMyTickets(User currentUser) {
-        return ticketRepository.findByUser(currentUser);
+        return ticketRepository.findByUser(currentUser)
+                .stream()
+                .sorted(Comparator.comparing(Ticket::getCreatedAt).reversed())
+                .toList();
     }
 
     public List<Ticket> getTicketsByQueue(long queueId, User currentUser) {
@@ -51,7 +55,10 @@ public class TicketService {
 
         checkQueueOwner(queue, currentUser);
 
-        return ticketRepository.findByQueue(queue);
+        return ticketRepository.findByQueue(queue)
+                .stream()
+                .sorted(Comparator.comparingInt(Ticket::getSortOrder))
+                .toList();
     }
 
     public Ticket cancelTicket(long ticketId, User currentUser) {
@@ -76,17 +83,81 @@ public class TicketService {
         checkQueueOwner(queue, currentUser);
 
         Ticket nextTicket = ticketRepository
-                .findFirstByQueueAndStatusOrderByTicketNumberAsc(queue, TicketStatus.WAITING)
+                .findFirstByQueueAndStatusOrderBySortOrderAsc(queue, TicketStatus.WAITING)
                 .orElseThrow(() -> new RuntimeException("Non ci sono ticket in attesa"));
 
         nextTicket.setStatus(TicketStatus.SERVING);
-        nextTicket.setServedAt(LocalDateTime.now());
+        nextTicket.setCalledAt(LocalDateTime.now());
 
         queue.setCurrentNumber(nextTicket.getTicketNumber());
 
         serviceQueueRepository.save(queue);
 
         return ticketRepository.save(nextTicket);
+    }
+
+    public Ticket undoLastNext(long queueId, User currentUser) {
+        ServiceQueue queue = serviceQueueService.findById(queueId);
+
+        checkQueueOwner(queue, currentUser);
+
+        Ticket lastCalledTicket = ticketRepository.findByQueue(queue)
+                .stream()
+                .filter(ticket -> ticket.getStatus() == TicketStatus.SERVING)
+                .filter(ticket -> ticket.getCalledAt() != null)
+                .max(Comparator.comparing(Ticket::getCalledAt))
+                .orElseThrow(() -> new RuntimeException("Non ci sono ticket chiamati da annullare"));
+
+        lastCalledTicket.setStatus(TicketStatus.WAITING);
+        lastCalledTicket.setCalledAt(null);
+
+        Ticket previousServingTicket = ticketRepository.findByQueue(queue)
+                .stream()
+                .filter(ticket -> ticket.getStatus() == TicketStatus.SERVING)
+                .filter(ticket -> ticket.getId() != lastCalledTicket.getId())
+                .filter(ticket -> ticket.getCalledAt() != null)
+                .max(Comparator.comparing(Ticket::getCalledAt))
+                .orElse(null);
+
+        if (previousServingTicket != null) {
+            queue.setCurrentNumber(previousServingTicket.getTicketNumber());
+        } else {
+            queue.setCurrentNumber(0);
+        }
+
+        serviceQueueRepository.save(queue);
+
+        return ticketRepository.save(lastCalledTicket);
+    }
+
+    public Ticket completeTicket(long ticketId, User currentUser) {
+        Ticket ticket = findById(ticketId);
+
+        checkQueueOwner(ticket.getQueue(), currentUser);
+
+        if (ticket.getStatus() != TicketStatus.SERVING) {
+            throw new RuntimeException("Puoi completare solo un ticket in servizio");
+        }
+
+        ticket.setStatus(TicketStatus.SERVED);
+        ticket.setCompletedAt(LocalDateTime.now());
+
+        return ticketRepository.save(ticket);
+    }
+
+    public Ticket markNoShow(long ticketId, User currentUser) {
+        Ticket ticket = findById(ticketId);
+
+        checkQueueOwner(ticket.getQueue(), currentUser);
+
+        if (ticket.getStatus() != TicketStatus.SERVING) {
+            throw new RuntimeException("Puoi segnare no-show solo un ticket in servizio");
+        }
+
+        ticket.setStatus(TicketStatus.NO_SHOW);
+        ticket.setCompletedAt(LocalDateTime.now());
+
+        return ticketRepository.save(ticket);
     }
 
     public Ticket findById(long ticketId) {
@@ -99,11 +170,11 @@ public class TicketService {
             return 0;
         }
 
-        return ticketRepository.countByQueueAndStatusAndTicketNumberLessThan(
-                ticket.getQueue(),
-                TicketStatus.WAITING,
-                ticket.getTicketNumber()
-        );
+        return (int) ticketRepository.findByQueue(ticket.getQueue())
+                .stream()
+                .filter(t -> t.getStatus() == TicketStatus.WAITING)
+                .filter(t -> t.getSortOrder() < ticket.getSortOrder())
+                .count();
     }
 
     private void checkQueueOwner(ServiceQueue queue, User currentUser) {

@@ -24,7 +24,13 @@ public class Ticket {
     private TicketStatus status;
 
     private LocalDateTime createdAt;
-    private LocalDateTime servedAt;
+    private LocalDateTime calledAt;
+    private LocalDateTime completedAt;
+
+    private boolean smartDelayUsed = false;
+    private LocalDateTime smartDelayAt;
+
+    private int sortOrder;
 
     @ManyToOne
     @JoinColumn(name = "queue_id", nullable = false)
@@ -39,10 +45,16 @@ public class Ticket {
         this.queue = queue;
         this.user = user;
         this.status = TicketStatus.WAITING;
+        this.smartDelayUsed = false;
+        this.sortOrder = ticketNumber;
     }
 
     @PrePersist
     public void setCreatedAt() {
         this.createdAt = LocalDateTime.now();
+
+        if (this.sortOrder == 0) {
+            this.sortOrder = this.ticketNumber;
+        }
     }
 }

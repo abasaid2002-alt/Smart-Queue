@@ -4,5 +4,6 @@ public enum TicketStatus {
     WAITING,
     SERVING,
     SERVED,
-    CANCELLED
+    CANCELLED,
+    NO_SHOW
 }

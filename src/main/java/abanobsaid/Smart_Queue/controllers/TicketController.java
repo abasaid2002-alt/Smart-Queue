@@ -64,13 +64,44 @@ public class TicketController {
         return toResponse(ticket);
     }
 
+    @PatchMapping("/queues/{queueId}/undo-next")
+    public TicketResponseDTO undoLastNext(
+            @PathVariable long queueId,
+            @AuthenticationPrincipal User currentUser
+    ) {
+        Ticket ticket = ticketService.undoLastNext(queueId, currentUser);
+        return toResponse(ticket);
+    }
+
+    @PatchMapping("/tickets/{ticketId}/complete")
+    public TicketResponseDTO completeTicket(
+            @PathVariable long ticketId,
+            @AuthenticationPrincipal User currentUser
+    ) {
+        Ticket ticket = ticketService.completeTicket(ticketId, currentUser);
+        return toResponse(ticket);
+    }
+
+    @PatchMapping("/tickets/{ticketId}/no-show")
+    public TicketResponseDTO markNoShow(
+            @PathVariable long ticketId,
+            @AuthenticationPrincipal User currentUser
+    ) {
+        Ticket ticket = ticketService.markNoShow(ticketId, currentUser);
+        return toResponse(ticket);
+    }
+
     private TicketResponseDTO toResponse(Ticket ticket) {
         return new TicketResponseDTO(
                 ticket.getId(),
                 ticket.getTicketNumber(),
                 ticket.getStatus(),
                 ticket.getCreatedAt(),
-                ticket.getServedAt(),
+                ticket.getCalledAt(),
+                ticket.getCompletedAt(),
+                ticket.isSmartDelayUsed(),
+                ticket.getSmartDelayAt(),
+                ticket.getSortOrder(),
                 ticket.getQueue().getId(),
                 ticket.getQueue().getBusiness().getId(),
                 ticket.getQueue().getBusiness().getName(),
