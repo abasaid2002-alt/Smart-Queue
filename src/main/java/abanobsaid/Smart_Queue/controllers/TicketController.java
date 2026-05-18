@@ -3,6 +3,7 @@ package abanobsaid.Smart_Queue.controllers;
 import abanobsaid.Smart_Queue.entities.Ticket;
 import abanobsaid.Smart_Queue.entities.User;
 import abanobsaid.Smart_Queue.payloads.TicketResponseDTO;
+import abanobsaid.Smart_Queue.payloads.WaitingInfoResponseDTO;
 import abanobsaid.Smart_Queue.services.TicketService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -99,6 +100,14 @@ public class TicketController {
     ) {
         Ticket ticket = ticketService.smartDelay(ticketId, positions, currentUser);
         return toResponse(ticket);
+    }
+
+    @GetMapping("/tickets/{ticketId}/waiting-info")
+    public WaitingInfoResponseDTO getWaitingInfo(
+            @PathVariable long ticketId,
+            @AuthenticationPrincipal User currentUser
+    ) {
+        return ticketService.getWaitingInfo(ticketId, currentUser);
     }
 
     private TicketResponseDTO toResponse(Ticket ticket) {

@@ -1,11 +1,13 @@
 package abanobsaid.Smart_Queue.services;
 
 import abanobsaid.Smart_Queue.entities.*;
+import abanobsaid.Smart_Queue.payloads.WaitingInfoResponseDTO;
 import abanobsaid.Smart_Queue.repositories.ServiceQueueRepository;
 import abanobsaid.Smart_Queue.repositories.TicketRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -225,6 +227,66 @@ public class TicketService {
         ticketRepository.saveAll(waitingTickets);
 
         return findById(ticketId);
+    }
+
+    public WaitingInfoResponseDTO getWaitingInfo(long ticketId, User currentUser) {
+        Ticket ticket = findById(ticketId);
+
+        if (currentUser.getRole() == Role.CLIENT && ticket.getUser().getId() != currentUser.getId()) {
+            throw new RuntimeException("Non puoi vedere le informazioni di questo ticket");
+        }
+
+        if (currentUser.getRole() == Role.MANAGER) {
+            checkQueueOwner(ticket.getQueue(), currentUser);
+        }
+
+        int peopleBefore = calculatePeopleBefore(ticket);
+
+        int position = 0;
+        int estimatedWaitingMinutes = 0;
+
+        if (ticket.getStatus() == TicketStatus.WAITING) {
+            position = peopleBefore + 1;
+        }
+
+        int averageServiceMinutes = calculateAverageServiceMinutes(ticket.getQueue());
+
+        if (ticket.getStatus() == TicketStatus.WAITING) {
+            estimatedWaitingMinutes = peopleBefore * averageServiceMinutes;
+        }
+
+        return new WaitingInfoResponseDTO(
+                ticket.getId(),
+                ticket.getTicketNumber(),
+                ticket.getStatus(),
+                position,
+                peopleBefore,
+                averageServiceMinutes,
+                estimatedWaitingMinutes
+        );
+    }
+
+    public int calculateAverageServiceMinutes(ServiceQueue queue) {
+        List<Ticket> servedTickets = ticketRepository.findByQueue(queue)
+                .stream()
+                .filter(ticket -> ticket.getStatus() == TicketStatus.SERVED)
+                .filter(ticket -> ticket.getCalledAt() != null)
+                .filter(ticket -> ticket.getCompletedAt() != null)
+                .sorted(Comparator.comparing(Ticket::getCompletedAt).reversed())
+                .limit(5)
+                .toList();
+
+        if (servedTickets.isEmpty()) {
+            return 5;
+        }
+
+        double average = servedTickets.stream()
+                .mapToLong(ticket -> Duration.between(ticket.getCalledAt(), ticket.getCompletedAt()).toMinutes())
+                .filter(minutes -> minutes > 0)
+                .average()
+                .orElse(5);
+
+        return (int) Math.ceil(average);
     }
 
     public Ticket findById(long ticketId) {
