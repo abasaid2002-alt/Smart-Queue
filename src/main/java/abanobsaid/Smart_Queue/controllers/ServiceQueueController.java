@@ -32,8 +32,11 @@ public class ServiceQueueController {
     }
 
     @GetMapping("/businesses/{businessId}/queue")
-    public QueueResponseDTO getQueueByBusinessId(@PathVariable long businessId) {
-        ServiceQueue queue = serviceQueueService.findByBusinessId(businessId);
+    public QueueResponseDTO getQueueByBusinessId(
+            @PathVariable long businessId,
+            @AuthenticationPrincipal User currentUser
+    ) {
+        ServiceQueue queue = serviceQueueService.findByBusinessId(businessId, currentUser);
         return toResponse(queue);
     }
 
