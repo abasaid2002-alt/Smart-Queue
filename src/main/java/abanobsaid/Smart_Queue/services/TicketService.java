@@ -25,6 +25,9 @@ public class TicketService {
     @Autowired
     private ServiceQueueRepository serviceQueueRepository;
 
+    @Autowired
+    private NotificationService notificationService;
+
     public Ticket createTicket(long queueId, User currentUser) {
         if (currentUser.getRole() != Role.CLIENT) {
             throw new RuntimeException("Solo un cliente può prendere un numero");
@@ -77,7 +80,16 @@ public class TicketService {
 
         ticket.setStatus(TicketStatus.CANCELLED);
 
-        return ticketRepository.save(ticket);
+        Ticket savedTicket = ticketRepository.save(ticket);
+
+        notificationService.createNotification(
+                savedTicket.getUser(),
+                savedTicket,
+                NotificationType.TICKET_CANCELLED,
+                "Il tuo ticket numero " + savedTicket.getTicketNumber() + " è stato cancellato"
+        );
+
+        return savedTicket;
     }
 
     public Ticket nextTicket(long queueId, User currentUser) {
@@ -96,7 +108,18 @@ public class TicketService {
 
         serviceQueueRepository.save(queue);
 
-        return ticketRepository.save(nextTicket);
+        Ticket savedTicket = ticketRepository.save(nextTicket);
+
+        notificationService.createNotification(
+                savedTicket.getUser(),
+                savedTicket,
+                NotificationType.TURN_CALLED,
+                "Il tuo turno è stato chiamato. Ticket numero " + savedTicket.getTicketNumber()
+        );
+
+        createNearTurnNotifications(queue);
+
+        return savedTicket;
     }
 
     public Ticket undoLastNext(long queueId, User currentUser) {
@@ -304,6 +327,27 @@ public class TicketService {
                 .filter(t -> t.getStatus() == TicketStatus.WAITING)
                 .filter(t -> t.getSortOrder() < ticket.getSortOrder())
                 .count();
+    }
+
+    private void createNearTurnNotifications(ServiceQueue queue) {
+        List<Ticket> waitingTickets = ticketRepository.findByQueue(queue)
+                .stream()
+                .filter(ticket -> ticket.getStatus() == TicketStatus.WAITING)
+                .sorted(Comparator.comparingInt(Ticket::getSortOrder))
+                .toList();
+
+        for (int i = 0; i < waitingTickets.size(); i++) {
+            Ticket ticket = waitingTickets.get(i);
+
+            if (i <= 1) {
+                notificationService.createNotification(
+                        ticket.getUser(),
+                        ticket,
+                        NotificationType.TURN_NEAR,
+                        "Mancano pochi turni al tuo numero. Persone davanti: " + i
+                );
+            }
+        }
     }
 
     private void checkQueueOwner(ServiceQueue queue, User currentUser) {
