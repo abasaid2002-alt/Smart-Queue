@@ -1,11 +1,30 @@
+import { BrowserRouter, Navigate, Route, Routes } from "react-router"
+import { AppLayout } from "./layouts/AppLayout"
+import { AnalyticsPage } from "./pages/AnalyticsPage"
+import { AuthPage } from "./pages/AuthPage"
+import { DashboardPage } from "./pages/DashboardPage"
+import { NotificationsPage } from "./pages/NotificationsPage"
+import { QueuePage } from "./pages/QueuePage"
+import { SettingsPage } from "./pages/SettingsPage"
+import { TicketsPage } from "./pages/TicketsPage"
+
 function App() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
-      <div className="rounded-2xl border border-white/10 bg-white/10 p-10 text-center shadow-2xl">
-        <h1 className="text-4xl font-bold">Smart Queue</h1>
-        <p className="mt-3 text-slate-300">Tailwind funziona correttamente.</p>
-      </div>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<AuthPage />} />
+
+        <Route element={<AppLayout />}>
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/queue" element={<QueuePage />} />
+          <Route path="/tickets" element={<TicketsPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   )
 }
 
