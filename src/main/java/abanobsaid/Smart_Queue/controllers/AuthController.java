@@ -1,7 +1,10 @@
 package abanobsaid.Smart_Queue.controllers;
 
 import abanobsaid.Smart_Queue.entities.User;
+import abanobsaid.Smart_Queue.payloads.ForgotPasswordDTO;
 import abanobsaid.Smart_Queue.payloads.LoginResponseDTO;
+import abanobsaid.Smart_Queue.payloads.MessageResponseDTO;
+import abanobsaid.Smart_Queue.payloads.ResetPasswordDTO;
 import abanobsaid.Smart_Queue.payloads.UserLoginDTO;
 import abanobsaid.Smart_Queue.payloads.UserRegisterDTO;
 import abanobsaid.Smart_Queue.payloads.UserResponseDTO;
@@ -34,7 +37,16 @@ public class AuthController {
 
     @PostMapping("/login")
     public LoginResponseDTO login(@RequestBody @Valid UserLoginDTO body) {
-        String token = authService.login(body);
-        return new LoginResponseDTO(token);
+        return authService.login(body);
+    }
+
+    @PostMapping("/forgot-password")
+    public MessageResponseDTO forgotPassword(@RequestBody @Valid ForgotPasswordDTO body) {
+        return authService.forgotPassword(body.email());
+    }
+
+    @PostMapping("/reset-password")
+    public MessageResponseDTO resetPassword(@RequestBody @Valid ResetPasswordDTO body) {
+        return authService.resetPassword(body);
     }
 }

@@ -12,6 +12,11 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
 
 @Configuration
 public class SecurityConfig {
@@ -29,17 +34,31 @@ public class SecurityConfig {
 
         http.csrf(AbstractHttpConfigurer::disable);
 
+        http.cors(cors ->
+                cors.configurationSource(corsConfigurationSource())
+        );
+
         http.sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
         );
 
         http.authorizeHttpRequests(request -> request
 
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
                 // Auth pubblica
                 .requestMatchers("/auth/**").permitAll()
 
                 // Waiting Intelligence
                 .requestMatchers(HttpMethod.GET, "/tickets/*/waiting-info").authenticated()
+
+                // Notifications
+                .requestMatchers(HttpMethod.GET, "/notifications/my").authenticated()
+                .requestMatchers(HttpMethod.GET, "/notifications/my/unread").authenticated()
+                .requestMatchers(HttpMethod.PATCH, "/notifications/*/read").authenticated()
+
+                // Analytics
+                .requestMatchers(HttpMethod.GET, "/queues/*/analytics").authenticated()
 
                 // Ticket
                 .requestMatchers(HttpMethod.POST, "/queues/*/tickets").authenticated()
@@ -75,5 +94,21 @@ public class SecurityConfig {
         http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
+    }
+
+    @Bean
+    CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+
+        configuration.setAllowedOrigins(List.of("http://localhost:5173"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
+        configuration.setExposedHeaders(List.of("Authorization"));
+        configuration.setAllowCredentials(true);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+
+        return source;
     }
 }
