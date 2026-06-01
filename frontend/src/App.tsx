@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router"
+import { ProtectedRoute } from "./components/auth/ProtectedRoute"
 import { AppLayout } from "./layouts/AppLayout"
 import { AnalyticsPage } from "./pages/AnalyticsPage"
 import { AuthPage } from "./pages/AuthPage"
@@ -13,15 +14,18 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<AuthPage />} />
+        <Route path="/reset-password" element={<AuthPage />} />
 
-        <Route element={<AppLayout />}>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/queue" element={<QueuePage />} />
-          <Route path="/tickets" element={<TicketsPage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
-          <Route path="/notifications" element={<NotificationsPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+        <Route element={<ProtectedRoute />}>
+          <Route element={<AppLayout />}>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/queue" element={<QueuePage />} />
+            <Route path="/tickets" element={<TicketsPage />} />
+            <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
         </Route>
       </Routes>
     </BrowserRouter>

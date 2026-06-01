@@ -1,5 +1,6 @@
-import { Bell, CircleDot, Menu, Search, Sparkles } from "lucide-react"
-import { useLocation } from "react-router"
+import { Bell, CircleDot, LogOut, Search, Sparkles } from "lucide-react"
+import { useLocation, useNavigate } from "react-router"
+import { logout } from "../../lib/auth"
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "Dashboard",
@@ -12,19 +13,18 @@ const pageTitles: Record<string, string> = {
 
 export function TopNavbar() {
   const location = useLocation()
+  const navigate = useNavigate()
+
   const title = pageTitles[location.pathname] ?? "Smart Queue"
+
+  function handleLogout() {
+    logout()
+    navigate("/login", { replace: true })
+  }
 
   return (
     <header className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/85 backdrop-blur-xl">
       <div className="flex h-16 items-center gap-4 px-4 sm:px-6 lg:px-8">
-        <button
-          type="button"
-          className="inline-flex size-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-slate-300 lg:hidden"
-          aria-label="Apri menu"
-        >
-          <Menu className="size-5" />
-        </button>
-
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium uppercase tracking-[0.2em] text-cyan-300">Smart Queue</p>
           <h1 className="truncate text-lg font-bold text-white">{title}</h1>
@@ -58,6 +58,15 @@ export function TopNavbar() {
         >
           <Sparkles className="size-4" />
           Presenta
+        </button>
+
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-red-400/10 hover:text-red-200"
+        >
+          <LogOut className="size-4" />
+          Esci
         </button>
       </div>
     </header>
