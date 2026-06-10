@@ -79,8 +79,11 @@ public class BusinessController {
                 business.getAddress(),
                 business.getCity(),
                 business.getCategory(),
+                business.getOpeningTime() != null ? business.getOpeningTime().toString() : null,
+                business.getClosingTime() != null ? business.getClosingTime().toString() : null,
                 business.getOwner().getId(),
-                business.getOwner().getName()
+                business.getOwner().getName(),
+                business.isActive()
         );
     }
 }

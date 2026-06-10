@@ -20,6 +20,9 @@ public record TicketResponseDTO(
         long userId,
         String userName,
         int currentNumber,
-        int peopleBefore
+        int peopleBefore,
+        boolean canCancel,
+        boolean canSmartDelay,
+        boolean canUndoFinalization
 ) {
 }

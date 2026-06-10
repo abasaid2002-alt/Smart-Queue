@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Getter
@@ -26,6 +27,15 @@ public class ServiceQueue {
 
     private LocalDateTime createdAt;
 
+    @Column(name = "business_day")
+    private LocalDate businessDay;
+
+    @Column(name = "manually_paused")
+    private boolean manuallyPaused = false;
+
+    @Column(name = "last_automatic_sync_at")
+    private LocalDateTime lastAutomaticSyncAt;
+
     @OneToOne
     @JoinColumn(name = "business_id", nullable = false, unique = true)
     private Business business;
@@ -35,10 +45,13 @@ public class ServiceQueue {
         this.currentNumber = 0;
         this.lastNumber = 0;
         this.status = QueueStatus.OPEN;
+        this.manuallyPaused = false;
     }
 
     @PrePersist
     public void setCreatedAt() {
-        this.createdAt = LocalDateTime.now();
+        if (this.createdAt == null) {
+            this.createdAt = LocalDateTime.now();
+        }
     }
 }

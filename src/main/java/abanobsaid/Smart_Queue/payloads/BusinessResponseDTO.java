@@ -7,7 +7,10 @@ public record BusinessResponseDTO(
         String address,
         String city,
         String category,
+        String openingTime,
+        String closingTime,
         long ownerId,
-        String ownerName
+        String ownerName,
+        boolean active
 ) {
 }

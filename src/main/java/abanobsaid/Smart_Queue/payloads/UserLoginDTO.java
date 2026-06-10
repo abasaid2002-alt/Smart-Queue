@@ -1,14 +1,14 @@
 package abanobsaid.Smart_Queue.payloads;
 
 import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotBlank;
 
 public record UserLoginDTO(
         @Email(message = "Email non valida")
-        @NotEmpty(message = "L'email è obbligatoria")
+        @NotBlank(message = "L'email è obbligatoria")
         String email,
 
-        @NotEmpty(message = "La password è obbligatoria")
+        @NotBlank(message = "La password è obbligatoria")
         String password
 ) {
 }

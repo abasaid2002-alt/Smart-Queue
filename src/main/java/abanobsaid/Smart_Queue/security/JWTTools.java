@@ -23,8 +23,11 @@ public class JWTTools {
     public String createToken(User user) {
         return Jwts.builder()
                 .subject(user.getEmail())
+                .issuer("Smart Queue")
+                .claim("userId", user.getId())
+                .claim("role", user.getRole().name())
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 24))
+                .expiration(new Date(System.currentTimeMillis() + 1000L * 60 * 60 * 24))
                 .signWith(getKey())
                 .compact();
     }

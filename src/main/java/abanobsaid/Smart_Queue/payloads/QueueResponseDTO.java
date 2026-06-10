@@ -2,6 +2,7 @@ package abanobsaid.Smart_Queue.payloads;
 
 import abanobsaid.Smart_Queue.entities.QueueStatus;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 public record QueueResponseDTO(
@@ -11,6 +12,12 @@ public record QueueResponseDTO(
         QueueStatus status,
         LocalDateTime createdAt,
         long businessId,
-        String businessName
+        String businessName,
+        boolean manuallyPaused,
+        String openingTime,
+        String closingTime,
+        LocalDate businessDay,
+        LocalDateTime nextOpeningAt,
+        String availabilityMessage
 ) {
 }

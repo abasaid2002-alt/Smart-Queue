@@ -75,7 +75,13 @@ public class ServiceQueueController {
                 queue.getStatus(),
                 queue.getCreatedAt(),
                 queue.getBusiness().getId(),
-                queue.getBusiness().getName()
+                queue.getBusiness().getName(),
+                queue.isManuallyPaused(),
+                queue.getBusiness().getOpeningTime() != null ? queue.getBusiness().getOpeningTime().toString() : null,
+                queue.getBusiness().getClosingTime() != null ? queue.getBusiness().getClosingTime().toString() : null,
+                queue.getBusinessDay(),
+                serviceQueueService.calculateNextOpeningAt(queue),
+                serviceQueueService.buildAvailabilityMessage(queue)
         );
     }
 }
