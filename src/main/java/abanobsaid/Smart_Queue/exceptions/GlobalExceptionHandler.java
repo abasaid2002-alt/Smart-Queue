@@ -1,6 +1,7 @@
 package abanobsaid.Smart_Queue.exceptions;
 
 import abanobsaid.Smart_Queue.payloads.ErrorResponseDTO;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -46,6 +47,16 @@ public class GlobalExceptionHandler {
     public ErrorResponseDTO handleInvalidJsonException(HttpMessageNotReadableException ex) {
         return new ErrorResponseDTO(
                 "Dati della richiesta non validi",
+                LocalDateTime.now()
+        );
+    }
+
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponseDTO handleDataIntegrityException(DataIntegrityViolationException ex) {
+        return new ErrorResponseDTO(
+                "Operazione non completata. Controlla i dati e riprova.",
                 LocalDateTime.now()
         );
     }

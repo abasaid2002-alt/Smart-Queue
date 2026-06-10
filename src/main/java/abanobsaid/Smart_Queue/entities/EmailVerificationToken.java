@@ -5,8 +5,8 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "password_reset_tokens")
-public class PasswordResetToken {
+@Table(name = "email_verification_tokens")
+public class EmailVerificationToken {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -27,18 +27,14 @@ public class PasswordResetToken {
 
     private LocalDateTime usedAt;
 
-    @Column(nullable = false, length = 40)
-    private String purpose = "PASSWORD_RESET";
-
-    public PasswordResetToken() {
+    public EmailVerificationToken() {
     }
 
-    public PasswordResetToken(String tokenHash, User user, LocalDateTime expiresAt) {
+    public EmailVerificationToken(String tokenHash, User user, LocalDateTime expiresAt) {
         this.tokenHash = tokenHash;
         this.user = user;
         this.expiresAt = expiresAt;
         this.createdAt = LocalDateTime.now();
-        this.purpose = "PASSWORD_RESET";
     }
 
     public long getId() {
@@ -83,14 +79,6 @@ public class PasswordResetToken {
 
     public void setUsedAt(LocalDateTime usedAt) {
         this.usedAt = usedAt;
-    }
-
-    public String getPurpose() {
-        return purpose;
-    }
-
-    public void setPurpose(String purpose) {
-        this.purpose = purpose;
     }
 
     public boolean isExpired() {

@@ -2,6 +2,7 @@ package abanobsaid.Smart_Queue.config;
 
 import abanobsaid.Smart_Queue.security.JWTFilter;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -16,6 +17,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
@@ -23,6 +25,9 @@ public class SecurityConfig {
 
     @Autowired
     private JWTFilter jwtFilter;
+
+    @Value("${app.cors.allowed-origins:http://localhost:5173}")
+    private String allowedOrigins;
 
     @Bean
     PasswordEncoder getBCrypt() {
@@ -57,6 +62,12 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/notifications/my/unread").authenticated()
                 .requestMatchers(HttpMethod.PATCH, "/notifications/*/read").authenticated()
 
+                // Conversations
+                .requestMatchers(HttpMethod.GET, "/conversations/my").authenticated()
+                .requestMatchers(HttpMethod.POST, "/tickets/*/conversation").authenticated()
+                .requestMatchers(HttpMethod.GET, "/conversations/*/messages").authenticated()
+                .requestMatchers(HttpMethod.POST, "/conversations/*/messages").authenticated()
+
                 // Analytics
                 .requestMatchers(HttpMethod.GET, "/queues/*/analytics").authenticated()
 
@@ -66,6 +77,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/queues/*/tickets").authenticated()
                 .requestMatchers(HttpMethod.PATCH, "/tickets/*/cancel").authenticated()
                 .requestMatchers(HttpMethod.PATCH, "/tickets/*/complete").authenticated()
+                .requestMatchers(HttpMethod.PATCH, "/tickets/*/undo-complete").authenticated()
                 .requestMatchers(HttpMethod.PATCH, "/tickets/*/no-show").authenticated()
                 .requestMatchers(HttpMethod.PATCH, "/tickets/*/smart-delay").authenticated()
                 .requestMatchers(HttpMethod.PATCH, "/queues/*/next").authenticated()
@@ -100,7 +112,12 @@ public class SecurityConfig {
     CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        configuration.setAllowedOrigins(List.of("http://localhost:5173"));
+        List<String> origins = Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isBlank())
+                .toList();
+
+        configuration.setAllowedOrigins(origins.isEmpty() ? List.of("http://localhost:5173") : origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
         configuration.setExposedHeaders(List.of("Authorization"));

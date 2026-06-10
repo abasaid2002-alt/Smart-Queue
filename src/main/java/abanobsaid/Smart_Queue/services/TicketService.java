@@ -3,11 +3,15 @@ package abanobsaid.Smart_Queue.services;
 import abanobsaid.Smart_Queue.entities.*;
 import abanobsaid.Smart_Queue.payloads.WaitingInfoResponseDTO;
 import abanobsaid.Smart_Queue.repositories.ServiceQueueRepository;
+import abanobsaid.Smart_Queue.repositories.DailyTicketReservationRepository;
 import abanobsaid.Smart_Queue.repositories.TicketRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -28,15 +32,35 @@ public class TicketService {
     @Autowired
     private NotificationService notificationService;
 
+    @Autowired
+    private DailyTicketReservationRepository dailyTicketReservationRepository;
+
+    @Value("${app.ticket.cancel-min-people-before:2}")
+    private int cancelMinPeopleBefore;
+
+    @Transactional
     public Ticket createTicket(long queueId, User currentUser) {
-        if (currentUser.getRole() != Role.CLIENT) {
-            throw new RuntimeException("Solo un cliente può prendere un numero");
+        if (currentUser.getRole() != Role.CLIENT && currentUser.getRole() != Role.MANAGER) {
+            throw new RuntimeException("Non puoi prendere un numero con questo account");
         }
 
         ServiceQueue queue = serviceQueueService.findById(queueId);
 
-        if (queue.getStatus() == QueueStatus.CLOSED) {
-            throw new RuntimeException("Questa coda è chiusa");
+        if (currentUser.getRole() == Role.MANAGER && queue.getBusiness().getOwner().getId() == currentUser.getId()) {
+            throw new RuntimeException("Non puoi prenotare ticket nelle tue attività");
+        }
+
+        if (!serviceQueueService.isQueueAvailableForTickets(queue)) {
+            throw new RuntimeException(serviceQueueService.buildAvailabilityMessage(queue));
+        }
+
+        queue = serviceQueueService.findById(queueId);
+
+        Business business = queue.getBusiness();
+        LocalDate today = LocalDate.now();
+
+        if (dailyTicketReservationRepository.existsByUserAndBusinessAndReservationDate(currentUser, business, today)) {
+            throw new RuntimeException("Hai già preso un ticket oggi per questa attività");
         }
 
         int newNumber = queue.getLastNumber() + 1;
@@ -44,7 +68,10 @@ public class TicketService {
         queue.setLastNumber(newNumber);
         serviceQueueRepository.save(queue);
 
+        dailyTicketReservationRepository.save(new DailyTicketReservation(currentUser, business, today));
+
         Ticket newTicket = new Ticket(newNumber, queue, currentUser);
+        newTicket.setSortOrder(nextSortOrder(queue));
 
         return ticketRepository.save(newTicket);
     }
@@ -63,14 +90,17 @@ public class TicketService {
 
         return ticketRepository.findByQueue(queue)
                 .stream()
-                .sorted(Comparator.comparingInt(Ticket::getSortOrder))
+                .filter(this::isTicketForQueueBusinessDay)
+                .filter(ticket -> ticket.getStatus() == TicketStatus.WAITING || ticket.getStatus() == TicketStatus.SERVING)
+                .sorted(Comparator.comparingInt(Ticket::getSortOrder).thenComparing(Ticket::getTicketNumber))
                 .toList();
     }
 
+    @Transactional
     public Ticket cancelTicket(long ticketId, User currentUser) {
         Ticket ticket = findById(ticketId);
 
-        if (ticket.getUser().getId() != currentUser.getId()) {
+        if ((currentUser.getRole() != Role.CLIENT && currentUser.getRole() != Role.MANAGER) || ticket.getUser().getId() != currentUser.getId()) {
             throw new RuntimeException("Non puoi cancellare questo ticket");
         }
 
@@ -78,27 +108,50 @@ public class TicketService {
             throw new RuntimeException("Puoi cancellare solo ticket in attesa");
         }
 
+        if (!canCancel(ticket)) {
+            throw new RuntimeException("Non puoi cancellare il ticket quando il turno è troppo vicino");
+        }
+
         ticket.setStatus(TicketStatus.CANCELLED);
 
         Ticket savedTicket = ticketRepository.save(ticket);
+        compactWaitingSortOrder(savedTicket.getQueue());
 
-        notificationService.createNotification(
+        createNotificationSafely(
                 savedTicket.getUser(),
                 savedTicket,
                 NotificationType.TICKET_CANCELLED,
                 "Il tuo ticket numero " + savedTicket.getTicketNumber() + " è stato cancellato"
         );
 
+        createNotificationSafely(
+                savedTicket.getQueue().getBusiness().getOwner(),
+                savedTicket,
+                NotificationType.TICKET_CANCELLED,
+                savedTicket.getUser().getName() + " ha cancellato il ticket #" + savedTicket.getTicketNumber() + " per " + savedTicket.getQueue().getBusiness().getName()
+        );
+
         return savedTicket;
     }
 
+    @Transactional
     public Ticket nextTicket(long queueId, User currentUser) {
         ServiceQueue queue = serviceQueueService.findById(queueId);
 
         checkQueueOwner(queue, currentUser);
 
-        Ticket nextTicket = ticketRepository
-                .findFirstByQueueAndStatusOrderBySortOrderAsc(queue, TicketStatus.WAITING)
+        boolean servingAlreadyExists = ticketRepository.findByQueue(queue)
+                .stream()
+                .filter(this::isTicketForQueueBusinessDay)
+                .anyMatch(ticket -> ticket.getStatus() == TicketStatus.SERVING);
+
+        if (servingAlreadyExists) {
+            throw new RuntimeException("Completa, ripristina o segna no-show il ticket in servizio prima di chiamare il prossimo");
+        }
+
+        Ticket nextTicket = getWaitingTickets(queue)
+                .stream()
+                .findFirst()
                 .orElseThrow(() -> new RuntimeException("Non ci sono ticket in attesa"));
 
         nextTicket.setStatus(TicketStatus.SERVING);
@@ -110,7 +163,7 @@ public class TicketService {
 
         Ticket savedTicket = ticketRepository.save(nextTicket);
 
-        notificationService.createNotification(
+        createNotificationSafely(
                 savedTicket.getUser(),
                 savedTicket,
                 NotificationType.TURN_CALLED,
@@ -122,40 +175,43 @@ public class TicketService {
         return savedTicket;
     }
 
+    @Transactional
     public Ticket undoLastNext(long queueId, User currentUser) {
         ServiceQueue queue = serviceQueueService.findById(queueId);
 
         checkQueueOwner(queue, currentUser);
 
-        Ticket lastCalledTicket = ticketRepository.findByQueue(queue)
+        Ticket lastServingTicket = ticketRepository.findByQueue(queue)
                 .stream()
+                .filter(this::isTicketForQueueBusinessDay)
                 .filter(ticket -> ticket.getStatus() == TicketStatus.SERVING)
-                .filter(ticket -> ticket.getCalledAt() != null)
-                .max(Comparator.comparing(Ticket::getCalledAt))
-                .orElseThrow(() -> new RuntimeException("Non ci sono ticket chiamati da annullare"));
-
-        lastCalledTicket.setStatus(TicketStatus.WAITING);
-        lastCalledTicket.setCalledAt(null);
-
-        Ticket previousServingTicket = ticketRepository.findByQueue(queue)
-                .stream()
-                .filter(ticket -> ticket.getStatus() == TicketStatus.SERVING)
-                .filter(ticket -> ticket.getId() != lastCalledTicket.getId())
                 .filter(ticket -> ticket.getCalledAt() != null)
                 .max(Comparator.comparing(Ticket::getCalledAt))
                 .orElse(null);
 
-        if (previousServingTicket != null) {
-            queue.setCurrentNumber(previousServingTicket.getTicketNumber());
-        } else {
-            queue.setCurrentNumber(0);
+        if (lastServingTicket != null) {
+            lastServingTicket.setStatus(TicketStatus.WAITING);
+            lastServingTicket.setCalledAt(null);
+            lastServingTicket.setCompletedAt(null);
+            lastServingTicket.setSortOrder(1);
+
+            Ticket savedTicket = ticketRepository.save(lastServingTicket);
+            compactWaitingSortOrder(queue);
+            refreshCurrentNumber(queue);
+
+            return savedTicket;
         }
 
-        serviceQueueRepository.save(queue);
+        Ticket lastFinalizedTicket = findLastFinalizedTicket(queue);
 
-        return ticketRepository.save(lastCalledTicket);
+        if (lastFinalizedTicket == null) {
+            throw new RuntimeException("Non ci sono ticket chiamati o completati da annullare");
+        }
+
+        return undoCompletedTicket(lastFinalizedTicket.getId(), currentUser);
     }
 
+    @Transactional
     public Ticket completeTicket(long ticketId, User currentUser) {
         Ticket ticket = findById(ticketId);
 
@@ -171,6 +227,40 @@ public class TicketService {
         return ticketRepository.save(ticket);
     }
 
+    @Transactional
+    public Ticket undoCompletedTicket(long ticketId, User currentUser) {
+        Ticket ticket = findById(ticketId);
+
+        checkQueueOwner(ticket.getQueue(), currentUser);
+
+        if (!canUndoFinalization(ticket)) {
+            throw new RuntimeException("Puoi ripristinare solo un ticket completato o no-show");
+        }
+
+        boolean otherServingTicketExists = ticketRepository.findByQueue(ticket.getQueue())
+                .stream()
+                .filter(this::isTicketForQueueBusinessDay)
+                .anyMatch(otherTicket -> otherTicket.getStatus() == TicketStatus.SERVING && otherTicket.getId() != ticket.getId());
+
+        if (otherServingTicketExists) {
+            throw new RuntimeException("C'è già un altro ticket in servizio. Chiudilo prima di ripristinare questo ticket");
+        }
+
+        ticket.setStatus(TicketStatus.SERVING);
+        ticket.setCompletedAt(null);
+
+        if (ticket.getCalledAt() == null) {
+            ticket.setCalledAt(LocalDateTime.now());
+        }
+
+        ServiceQueue queue = ticket.getQueue();
+        queue.setCurrentNumber(ticket.getTicketNumber());
+        serviceQueueRepository.save(queue);
+
+        return ticketRepository.save(ticket);
+    }
+
+    @Transactional
     public Ticket markNoShow(long ticketId, User currentUser) {
         Ticket ticket = findById(ticketId);
 
@@ -186,11 +276,12 @@ public class TicketService {
         return ticketRepository.save(ticket);
     }
 
+    @Transactional
     public Ticket smartDelay(long ticketId, int positions, User currentUser) {
         Ticket ticket = findById(ticketId);
 
-        if (currentUser.getRole() != Role.CLIENT) {
-            throw new RuntimeException("Solo un cliente può usare Smart Delay");
+        if (currentUser.getRole() != Role.CLIENT && currentUser.getRole() != Role.MANAGER) {
+            throw new RuntimeException("Non puoi usare Smart Delay con questo account");
         }
 
         if (ticket.getUser().getId() != currentUser.getId()) {
@@ -209,22 +300,9 @@ public class TicketService {
             throw new RuntimeException("Puoi rimandare il turno da 1 a massimo 3 posizioni");
         }
 
-        List<Ticket> waitingTickets = new ArrayList<>(
-                ticketRepository.findByQueue(ticket.getQueue())
-                        .stream()
-                        .filter(t -> t.getStatus() == TicketStatus.WAITING)
-                        .sorted(Comparator.comparingInt(Ticket::getSortOrder))
-                        .toList()
-        );
+        List<Ticket> waitingTickets = getWaitingTickets(ticket.getQueue());
 
-        int currentIndex = -1;
-
-        for (int i = 0; i < waitingTickets.size(); i++) {
-            if (waitingTickets.get(i).getId() == ticket.getId()) {
-                currentIndex = i;
-                break;
-            }
-        }
+        int currentIndex = indexOfTicket(waitingTickets, ticket);
 
         if (currentIndex == -1) {
             throw new RuntimeException("Ticket non trovato nella coda di attesa");
@@ -243,19 +321,24 @@ public class TicketService {
         ticketToMove.setSmartDelayUsed(true);
         ticketToMove.setSmartDelayAt(LocalDateTime.now());
 
-        for (int i = 0; i < waitingTickets.size(); i++) {
-            waitingTickets.get(i).setSortOrder(i + 1);
-        }
+        saveWaitingTicketsWithCompactOrder(waitingTickets);
 
-        ticketRepository.saveAll(waitingTickets);
+        Ticket savedTicket = findById(ticketId);
 
-        return findById(ticketId);
+        createNotificationSafely(
+                savedTicket.getQueue().getBusiness().getOwner(),
+                savedTicket,
+                NotificationType.TICKET_POSTPONED,
+                savedTicket.getUser().getName() + " ha posticipato il ticket #" + savedTicket.getTicketNumber() + " per " + savedTicket.getQueue().getBusiness().getName()
+        );
+
+        return savedTicket;
     }
 
     public WaitingInfoResponseDTO getWaitingInfo(long ticketId, User currentUser) {
         Ticket ticket = findById(ticketId);
 
-        if (currentUser.getRole() == Role.CLIENT && ticket.getUser().getId() != currentUser.getId()) {
+        if (ticket.getUser().getId() != currentUser.getId() && currentUser.getRole() != Role.MANAGER) {
             throw new RuntimeException("Non puoi vedere le informazioni di questo ticket");
         }
 
@@ -324,14 +407,105 @@ public class TicketService {
 
         return (int) ticketRepository.findByQueue(ticket.getQueue())
                 .stream()
+                .filter(this::isTicketForQueueBusinessDay)
                 .filter(t -> t.getStatus() == TicketStatus.WAITING)
                 .filter(t -> t.getSortOrder() < ticket.getSortOrder())
                 .count();
     }
 
+    public boolean canCancel(Ticket ticket) {
+        if (ticket.getStatus() != TicketStatus.WAITING) {
+            return false;
+        }
+
+        return calculatePeopleBefore(ticket) >= cancelMinPeopleBefore;
+    }
+
+    public boolean canSmartDelay(Ticket ticket) {
+        if (ticket.getStatus() != TicketStatus.WAITING || ticket.isSmartDelayUsed()) {
+            return false;
+        }
+
+        List<Ticket> waitingTickets = getWaitingTickets(ticket.getQueue());
+        int currentIndex = indexOfTicket(waitingTickets, ticket);
+
+        return currentIndex >= 0 && currentIndex < waitingTickets.size() - 1;
+    }
+
+    public boolean canUndoFinalization(Ticket ticket) {
+        return ticket.getStatus() == TicketStatus.SERVED || ticket.getStatus() == TicketStatus.NO_SHOW;
+    }
+
+    private Ticket findLastFinalizedTicket(ServiceQueue queue) {
+        return ticketRepository.findByQueue(queue)
+                .stream()
+                .filter(this::isTicketForQueueBusinessDay)
+                .filter(ticket -> ticket.getStatus() == TicketStatus.SERVED || ticket.getStatus() == TicketStatus.NO_SHOW)
+                .filter(ticket -> ticket.getCompletedAt() != null)
+                .max(Comparator.comparing(Ticket::getCompletedAt))
+                .orElse(null);
+    }
+
+    private int nextSortOrder(ServiceQueue queue) {
+        return ticketRepository.findByQueue(queue)
+                .stream()
+                .filter(this::isTicketForQueueBusinessDay)
+                .filter(ticket -> ticket.getStatus() == TicketStatus.WAITING)
+                .mapToInt(Ticket::getSortOrder)
+                .max()
+                .orElse(0) + 1;
+    }
+
+    private void compactWaitingSortOrder(ServiceQueue queue) {
+        saveWaitingTicketsWithCompactOrder(getWaitingTickets(queue));
+    }
+
+    private void saveWaitingTicketsWithCompactOrder(List<Ticket> waitingTickets) {
+        for (int i = 0; i < waitingTickets.size(); i++) {
+            waitingTickets.get(i).setSortOrder(i + 1);
+        }
+
+        ticketRepository.saveAll(waitingTickets);
+    }
+
+    private List<Ticket> getWaitingTickets(ServiceQueue queue) {
+        return new ArrayList<>(
+                ticketRepository.findByQueue(queue)
+                        .stream()
+                        .filter(this::isTicketForQueueBusinessDay)
+                        .filter(t -> t.getStatus() == TicketStatus.WAITING)
+                        .sorted(Comparator.comparingInt(Ticket::getSortOrder).thenComparing(Ticket::getTicketNumber))
+                        .toList()
+        );
+    }
+
+    private int indexOfTicket(List<Ticket> tickets, Ticket ticket) {
+        for (int i = 0; i < tickets.size(); i++) {
+            if (tickets.get(i).getId() == ticket.getId()) {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private void refreshCurrentNumber(ServiceQueue queue) {
+        Ticket currentServingTicket = ticketRepository.findByQueue(queue)
+                .stream()
+                .filter(this::isTicketForQueueBusinessDay)
+                .filter(ticket -> ticket.getStatus() == TicketStatus.SERVING)
+                .filter(ticket -> ticket.getCalledAt() != null)
+                .max(Comparator.comparing(Ticket::getCalledAt))
+                .orElse(null);
+
+        queue.setCurrentNumber(currentServingTicket != null ? currentServingTicket.getTicketNumber() : 0);
+        serviceQueueRepository.save(queue);
+    }
+
     private void createNearTurnNotifications(ServiceQueue queue) {
         List<Ticket> waitingTickets = ticketRepository.findByQueue(queue)
                 .stream()
+                .filter(this::isTicketForQueueBusinessDay)
                 .filter(ticket -> ticket.getStatus() == TicketStatus.WAITING)
                 .sorted(Comparator.comparingInt(Ticket::getSortOrder))
                 .toList();
@@ -340,14 +514,45 @@ public class TicketService {
             Ticket ticket = waitingTickets.get(i);
 
             if (i <= 1) {
-                notificationService.createNotification(
+                createNotificationIfMissingSafely(
                         ticket.getUser(),
                         ticket,
                         NotificationType.TURN_NEAR,
-                        "Mancano pochi turni al tuo numero. Persone davanti: " + i
+                        "Manca poco al tuo turno presso " + queue.getBusiness().getName() + ". Persone davanti: " + i
                 );
             }
         }
+    }
+
+    private void createNotificationSafely(User user, Ticket ticket, NotificationType type, String message) {
+        try {
+            notificationService.createNotification(user, ticket, type, message);
+        } catch (Exception ignored) {
+            // Le notifiche non devono annullare l'azione principale sul ticket.
+        }
+    }
+
+    private void createNotificationIfMissingSafely(User user, Ticket ticket, NotificationType type, String message) {
+        try {
+            notificationService.createNotificationIfMissing(user, ticket, type, message);
+        } catch (Exception ignored) {
+            // Le notifiche non devono annullare l'azione principale sul ticket.
+        }
+    }
+
+
+    private boolean isTicketForQueueBusinessDay(Ticket ticket) {
+        if (ticket.getCreatedAt() == null) {
+            return true;
+        }
+
+        LocalDate businessDay = ticket.getQueue().getBusinessDay();
+
+        if (businessDay == null) {
+            businessDay = LocalDate.now();
+        }
+
+        return ticket.getCreatedAt().toLocalDate().equals(businessDay);
     }
 
     private void checkQueueOwner(ServiceQueue queue, User currentUser) {

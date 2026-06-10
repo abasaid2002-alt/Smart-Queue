@@ -30,11 +30,15 @@ public class ManagerAnalyticsService {
 
         LocalDate today = LocalDate.now();
 
+        LocalDate businessDay = queue.getBusinessDay() != null ? queue.getBusinessDay() : today;
+
         long waitingTickets = tickets.stream()
+                .filter(ticket -> isSameDay(ticket.getCreatedAt(), businessDay))
                 .filter(ticket -> ticket.getStatus() == TicketStatus.WAITING)
                 .count();
 
         long servingTickets = tickets.stream()
+                .filter(ticket -> isSameDay(ticket.getCreatedAt(), businessDay))
                 .filter(ticket -> ticket.getStatus() == TicketStatus.SERVING)
                 .count();
 
@@ -78,7 +82,11 @@ public class ManagerAnalyticsService {
     }
 
     private boolean isToday(LocalDateTime dateTime, LocalDate today) {
-        return dateTime != null && dateTime.toLocalDate().equals(today);
+        return isSameDay(dateTime, today);
+    }
+
+    private boolean isSameDay(LocalDateTime dateTime, LocalDate day) {
+        return dateTime != null && dateTime.toLocalDate().equals(day);
     }
 
     private int calculateAverageWaitingMinutes(List<Ticket> tickets) {

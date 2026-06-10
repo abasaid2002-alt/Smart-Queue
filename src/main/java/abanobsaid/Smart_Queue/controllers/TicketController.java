@@ -83,6 +83,15 @@ public class TicketController {
         return toResponse(ticket);
     }
 
+    @PatchMapping("/tickets/{ticketId}/undo-complete")
+    public TicketResponseDTO undoCompletedTicket(
+            @PathVariable long ticketId,
+            @AuthenticationPrincipal User currentUser
+    ) {
+        Ticket ticket = ticketService.undoCompletedTicket(ticketId, currentUser);
+        return toResponse(ticket);
+    }
+
     @PatchMapping("/tickets/{ticketId}/no-show")
     public TicketResponseDTO markNoShow(
             @PathVariable long ticketId,
@@ -127,7 +136,10 @@ public class TicketController {
                 ticket.getUser().getId(),
                 ticket.getUser().getName(),
                 ticket.getQueue().getCurrentNumber(),
-                ticketService.calculatePeopleBefore(ticket)
+                ticketService.calculatePeopleBefore(ticket),
+                ticketService.canCancel(ticket),
+                ticketService.canSmartDelay(ticket),
+                ticketService.canUndoFinalization(ticket)
         );
     }
 }

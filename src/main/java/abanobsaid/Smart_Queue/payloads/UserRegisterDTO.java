@@ -30,6 +30,21 @@ public record UserRegisterDTO(
         String password,
 
         @NotNull(message = "Il ruolo è obbligatorio")
-        Role role
+        Role role,
+
+        @Size(max = 120, message = "Il nome dell'attività non può superare 120 caratteri")
+        String businessName,
+
+        @Size(max = 500, message = "La descrizione non può superare 500 caratteri")
+        String businessDescription,
+
+        @Size(max = 180, message = "L'indirizzo non può superare 180 caratteri")
+        String businessAddress,
+
+        @Size(max = 80, message = "La città non può superare 80 caratteri")
+        String businessCity,
+
+        @Size(max = 80, message = "La categoria non può superare 80 caratteri")
+        String businessCategory
 ) {
 }

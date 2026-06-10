@@ -1,5 +1,6 @@
 package abanobsaid.Smart_Queue.services;
 
+import abanobsaid.Smart_Queue.entities.EmailVerificationToken;
 import abanobsaid.Smart_Queue.entities.PasswordResetToken;
 import abanobsaid.Smart_Queue.entities.User;
 import abanobsaid.Smart_Queue.payloads.LoginResponseDTO;
@@ -7,10 +8,12 @@ import abanobsaid.Smart_Queue.payloads.MessageResponseDTO;
 import abanobsaid.Smart_Queue.payloads.ResetPasswordDTO;
 import abanobsaid.Smart_Queue.payloads.UserLoginDTO;
 import abanobsaid.Smart_Queue.payloads.UserRegisterDTO;
+import abanobsaid.Smart_Queue.repositories.EmailVerificationTokenRepository;
 import abanobsaid.Smart_Queue.repositories.PasswordResetTokenRepository;
 import abanobsaid.Smart_Queue.repositories.UserRepository;
 import abanobsaid.Smart_Queue.security.JWTTools;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -38,6 +41,9 @@ public class AuthService {
     private PasswordResetTokenRepository passwordResetTokenRepository;
 
     @Autowired
+    private EmailVerificationTokenRepository emailVerificationTokenRepository;
+
+    @Autowired
     private PasswordEncoder bcrypt;
 
     @Autowired
@@ -46,6 +52,10 @@ public class AuthService {
     @Autowired
     private EmailService emailService;
 
+    @Value("${app.email-verification.token-minutes:1440}")
+    private long emailVerificationTokenMinutes;
+
+    @Transactional
     public User register(UserRegisterDTO body) {
         String normalizedEmail = normalizeEmail(body.email());
 
@@ -66,7 +76,22 @@ public class AuthService {
                 body.role()
         );
 
-        return userRepository.save(newUser);
+        newUser.setEmailVerified(false);
+
+        User savedUser = userRepository.save(newUser);
+
+        try {
+            createAndSendEmailVerification(savedUser);
+        } catch (ResponseStatusException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Account non creato: errore durante l'invio dell'email di verifica. Controlla la configurazione SMTP."
+            );
+        }
+
+        return savedUser;
     }
 
     public LoginResponseDTO login(UserLoginDTO body) {
@@ -85,6 +110,13 @@ public class AuthService {
             );
         }
 
+        if (!found.isEmailVerified()) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Email non verificata. Controlla la tua casella email e clicca il link di attivazione prima di accedere."
+            );
+        }
+
         String token = jwtTools.createToken(found);
 
         return new LoginResponseDTO(
@@ -95,6 +127,66 @@ public class AuthService {
                 found.getEmail(),
                 found.getRole()
         );
+    }
+
+    @Transactional
+    public MessageResponseDTO verifyEmail(String plainToken) {
+        String tokenHash = hashToken(plainToken);
+
+        EmailVerificationToken verificationToken = emailVerificationTokenRepository.findByTokenHash(tokenHash)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Token di verifica non valido o scaduto"
+                ));
+
+        if (verificationToken.isUsed()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Token di verifica già utilizzato"
+            );
+        }
+
+        if (verificationToken.isExpired()) {
+            verificationToken.markAsUsed();
+            emailVerificationTokenRepository.save(verificationToken);
+
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Token di verifica scaduto. Richiedi un nuovo link di verifica."
+            );
+        }
+
+        User user = verificationToken.getUser();
+        user.setEmailVerified(true);
+        userRepository.save(user);
+
+        verificationToken.markAsUsed();
+        emailVerificationTokenRepository.save(verificationToken);
+
+        return new MessageResponseDTO("Email verificata correttamente. Ora puoi effettuare il login.");
+    }
+
+    @Transactional
+    public MessageResponseDTO resendVerificationEmail(String email) {
+        String normalizedEmail = normalizeEmail(email);
+        String safeMessage = "Se l'indirizzo email è registrato e non ancora verificato, riceverai un nuovo link di verifica.";
+
+        User user = userRepository.findByEmailIgnoreCase(normalizedEmail).orElse(null);
+
+        if (user == null || user.isEmailVerified()) {
+            return new MessageResponseDTO(safeMessage);
+        }
+
+        try {
+            createAndSendEmailVerification(user);
+        } catch (Exception ex) {
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Errore durante l'invio dell'email di verifica. Riprova più tardi."
+            );
+        }
+
+        return new MessageResponseDTO(safeMessage);
     }
 
     @Transactional
@@ -190,6 +282,29 @@ public class AuthService {
         passwordResetTokenRepository.save(resetToken);
 
         return new MessageResponseDTO("Password aggiornata con successo");
+    }
+
+    private void createAndSendEmailVerification(User user) {
+        List<EmailVerificationToken> activeTokens =
+                emailVerificationTokenRepository.findByUserAndUsedAtIsNull(user);
+
+        for (EmailVerificationToken activeToken : activeTokens) {
+            activeToken.markAsUsed();
+        }
+
+        emailVerificationTokenRepository.saveAll(activeTokens);
+
+        String plainToken = generateSecureToken();
+        String tokenHash = hashToken(plainToken);
+
+        EmailVerificationToken verificationToken = new EmailVerificationToken(
+                tokenHash,
+                user,
+                LocalDateTime.now().plusMinutes(emailVerificationTokenMinutes)
+        );
+
+        emailVerificationTokenRepository.save(verificationToken);
+        emailService.sendEmailVerificationEmail(user, plainToken);
     }
 
     private String normalizeEmail(String email) {
