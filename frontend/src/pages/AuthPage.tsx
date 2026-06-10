@@ -1,8 +1,7 @@
-import axios from "axios"
 import { useMemo, useState, type ReactNode, type SyntheticEvent } from "react"
 import { useNavigate, useSearchParams } from "react-router"
 import { ArrowRight, Eye, EyeOff, KeyRound, Lock, Mail, ShieldCheck, UserPlus } from "lucide-react"
-import { forgotPassword, loginUser, registerUser, resetPassword, type UserRole } from "../lib/api"
+import { forgotPassword, getApiErrorMessage, loginUser, registerUser, resetPassword, type UserRole } from "../lib/api"
 import { saveAuthSession } from "../lib/auth"
 
 type AuthMode = "login" | "register" | "forgot" | "reset"
@@ -37,7 +36,7 @@ export function AuthPage() {
     if (mode === "register") return "Registra cliente o manager per usare Smart Queue."
     if (mode === "forgot") return "Inserisci l'email e riceverai il link di reset."
     if (mode === "reset") return "Inserisci una nuova password sicura."
-    return "Inserisci le credenziali create nel backend."
+    return "Inserisci email e password del tuo account."
   }, [mode])
 
   async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
@@ -72,7 +71,7 @@ export function AuthPage() {
           role,
         })
 
-        setMessage("Account creato correttamente. Ora puoi fare login.")
+        setMessage("Account creato correttamente. Controlla la tua email e clicca il link di verifica prima di fare login.")
         setMode("login")
         setPassword("")
         return
@@ -104,7 +103,7 @@ export function AuthPage() {
         return
       }
     } catch (caughtError) {
-      setError(getErrorMessage(caughtError))
+      setError(getApiErrorMessage(caughtError))
     } finally {
       setLoading(false)
     }
@@ -120,7 +119,7 @@ export function AuthPage() {
   return (
     <main className="min-h-screen bg-[#020617] text-white">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-6 py-10">
-        <section className="grid w-full overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.03] shadow-2xl lg:grid-cols-[1fr_1.05fr]">
+        <section className="panel-card grid w-full overflow-hidden rounded-[2rem] shadow-2xl lg:grid-cols-[1fr_1.05fr]">
           <div className="relative hidden min-h-[520px] flex-col justify-between overflow-hidden bg-cyan-500/10 p-10 lg:flex">
             <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-cyan-400/20 blur-3xl" />
             <div className="absolute -bottom-24 right-0 h-72 w-72 rounded-full bg-blue-500/20 blur-3xl" />
@@ -133,7 +132,7 @@ export function AuthPage() {
               <h1 className="text-5xl font-black tracking-tight">Smart Queue</h1>
 
               <p className="mt-6 max-w-md text-base leading-7 text-cyan-50/80">
-                Accesso alla piattaforma per gestire code digitali, ticket, notifiche, Smart Delay e analytics per attività commerciali.
+                Accedi a un pannello chiaro per gestire code digitali, ticket, notifiche e statistiche della tua attività.
               </p>
             </div>
 
@@ -228,7 +227,7 @@ export function AuthPage() {
 
                 {mode === "register" && (
                   <Field label="Ruolo">
-                    <select value={role} onChange={(event) => setRole(event.target.value as UserRole)} className="auth-input">
+                    <select value={role} onChange={(event) => setRole(event.target.value as UserRole)} className="form-select">
                       <option value="CLIENT">Cliente</option>
                       <option value="MANAGER">Manager</option>
                     </select>
@@ -301,20 +300,4 @@ function getSubmitLabel(mode: AuthMode) {
   if (mode === "forgot") return "Invia email di reset"
   if (mode === "reset") return "Aggiorna password"
   return "Accedi"
-}
-
-function getErrorMessage(error: unknown) {
-  if (axios.isAxiosError(error)) {
-    const responseData = error.response?.data
-
-    if (typeof responseData === "object" && responseData !== null && "message" in responseData && typeof responseData.message === "string") {
-      return responseData.message
-    }
-
-    if (typeof responseData === "string") {
-      return responseData
-    }
-  }
-
-  return "Operazione non riuscita. Controlla i dati e riprova."
 }

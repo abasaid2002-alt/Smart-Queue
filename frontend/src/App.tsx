@@ -8,6 +8,7 @@ import { NotificationsPage } from "./pages/NotificationsPage"
 import { QueuePage } from "./pages/QueuePage"
 import { SettingsPage } from "./pages/SettingsPage"
 import { TicketsPage } from "./pages/TicketsPage"
+import { VerifyEmailPage } from "./pages/VerifyEmailPage"
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<AuthPage />} />
         <Route path="/reset-password" element={<AuthPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
 
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
